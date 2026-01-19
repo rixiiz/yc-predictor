@@ -1,0 +1,12 @@
+playwright==1.49.1
+numpy==2.2.1
+scikit-learn==1.6.0
+joblib==1.4.2
+yt-dlp==2025.1.15
+faster-whisper==1.1.0
+sentence-transformers==3.3.1
+torch>=2.2.0
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.10.4
+Pillow==10.4.0

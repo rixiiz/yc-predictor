@@ -1,0 +1,18 @@
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# data & logs
+data/raw/debug/
+logs/
+data/raw/partnersim.csv
+
+# playwright
+playwright/.cache/
+
+tmp/
+data/processed/
+data/models/
+.DS_Store
