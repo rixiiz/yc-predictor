@@ -1,6 +1,15 @@
+export type Contrib = {
+  intercept: number;
+  text_logit: number;
+  frames_logit: number;
+  total_logit: number;
+};
+
 export type ScoreResponse = {
   youtube_id: string;
   yc_like_probability: number;
+  confidence_label: string;
+  contrib: Contrib;
 };
 
 export async function scoreVideo(youtubeId: string): Promise<ScoreResponse> {
@@ -10,7 +19,7 @@ export async function scoreVideo(youtubeId: string): Promise<ScoreResponse> {
   const res = await fetch(`${base}/score`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ youtube_id: youtubeId })
+    body: JSON.stringify({ youtube_id: youtubeId }),
   });
 
   if (!res.ok) {

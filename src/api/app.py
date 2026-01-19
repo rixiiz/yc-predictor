@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,10 +20,7 @@ app = FastAPI(title="YC Predictor API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -30,9 +29,17 @@ app.add_middleware(
 class ScoreReq(BaseModel):
     youtube_id: str
 
+class Contrib(BaseModel):
+    intercept: float
+    text_logit: float
+    frames_logit: float
+    total_logit: float
+
 class ScoreResp(BaseModel):
     youtube_id: str
     yc_like_probability: float
+    confidence_label: str
+    contrib: Contrib
 
 _clf = None
 _asr = None
@@ -67,6 +74,15 @@ def _frame_vec(summary) -> np.ndarray:
         float(summary.n_frames),
     ], dtype=np.float32)[None, :]
 
+def _confidence_label(p: float) -> str:
+    if p >= 0.85:
+        return "Very YC-like"
+    if p >= 0.70:
+        return "Strong signal"
+    if p >= 0.55:
+        return "Borderline"
+    return "Unlikely"
+
 @app.post("/score", response_model=ScoreResp)
 def score(req: ScoreReq):
     if _clf is None:
@@ -76,24 +92,41 @@ def score(req: ScoreReq):
     if not yt:
         raise HTTPException(status_code=400, detail="youtube_id is required")
 
-    # Download video
     video_path = download_youtube(yt, TMP_VIDEOS)
 
-    # Frames -> features
     frame_dir = TMP_FRAMES / yt
     frames = extract_first_n_frames(video_path, frame_dir, n=10, fps=1)
     frame_summary = summarize_first_frames(frames)
 
-    # Audio -> transcript
     wav_path = extract_wav(video_path, TMP_AUDIO)
     transcript = _transcribe_wav(wav_path)
     if not transcript.strip():
         raise HTTPException(status_code=400, detail="Could not transcribe audio for this video")
 
-    # Text embedding + frame features
-    X_text = _embed.encode([transcript])   # (1, 384)
-    X_frames = _frame_vec(frame_summary)   # (1, 4)
-    X = np.hstack([X_text, X_frames])      # (1, 388)
+    X_text = _embed.encode([transcript])          # (1, 384)
+    X_frames = _frame_vec(frame_summary)          # (1, 4)
+    X = np.hstack([X_text, X_frames])             # (1, 388)
 
     proba = float(_clf.predict_proba(X)[0, 1])
-    return ScoreResp(youtube_id=yt, yc_like_probability=proba)
+
+    # Logistic regression contributions (logit space)
+    # total_logit = intercept + sum_i coef_i * x_i
+    coef = _clf.coef_.reshape(-1)                 # (388,)
+    intercept = float(_clf.intercept_.reshape(-1)[0])
+
+    x = X.reshape(-1)                             # (388,)
+    text_logit = float(np.dot(coef[:384], x[:384]))
+    frames_logit = float(np.dot(cof := coef[384:], x[384:]))
+    total_logit = intercept + text_logit + frames_logit
+
+    return ScoreResp(
+        youtube_id=yt,
+        yc_like_probability=proba,
+        confidence_label=_confidence_label(proba),
+        contrib=Contrib(
+            intercept=intercept,
+            text_logit=text_logit,
+            frames_logit=frames_logit,
+            total_logit=total_logit,
+        )
+    )
