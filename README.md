@@ -52,25 +52,25 @@ The system analyzes **what founders say** (speech transcripts) and **what the vi
 
 ## 🗂️ Project Structure
 
-YCpredictor/
-├── src/ # Python ML + backend code
-│ ├── api/ # FastAPI inference service
-│ ├── asr/ # Transcription pipeline (Whisper)
-│ ├── features/ # Text & frame feature extraction
-│ ├── media/ # YouTube download, audio, frames
-│ └── train/ # Model training
-├── data/
-│ ├── raw/ # Original dataset (CSV)
-│ ├── processed/ # Transcripts + features
-│ └── models/ # Trained model artifacts
-├── tmp/ # Temporary video/audio/frame files (ignored)
-├── yc-ui/ # TypeScript UI (Next.js)
-│ ├── app/ # App Router pages/layout
-│ ├── components/ # UI components
-│ └── lib/ # API helpers
-├── requirements.txt
-├── .gitignore
-└── README.md
+YCpredictor/<br>
+├── src/ # Python ML + backend code<br>
+│ ├── api/ # FastAPI inference service<br>
+│ ├── asr/ # Transcription pipeline (Whisper)<br>
+│ ├── features/ # Text & frame feature extraction<br>
+│ ├── media/ # YouTube download, audio, frames<br>
+│ └── train/ # Model training<br>
+├── data/<br>
+│ ├── raw/ # Original dataset (CSV)<br>
+│ ├── processed/ # Transcripts + features<br>
+│ └── models/ # Trained model artifacts<br>
+├── tmp/ # Temporary video/audio/frame files (ignored)<br>
+├── yc-ui/ # TypeScript UI (Next.js)<br>
+│ ├── app/ # App Router pages/layout<br>
+│ ├── components/ # UI components<br>
+│ └── lib/ # API helpers<br>
+├── requirements.txt<br>
+├── .gitignore<br>
+└── README.md<br>
 
 ---
 
@@ -95,33 +95,33 @@ The dataset is processed automatically into transcripts and feature vectors befo
 
 ### Backend Setup (Python)
 
-`git clone https://github.com/rixiiz/yc-predictor`
-`cd YCpredictor`
-`python -m venv .venv`
-`source .venv/bin/activate   # Windows: .\.venv\Scripts\Activate.ps1`
-`pip install -r requirements.txt`
+`git clone https://github.com/rixiiz/yc-predictor`<br>
+`cd YCpredictor`<br>
+`python -m venv .venv`<br>
+`source .venv/bin/activate   # Windows: .\.venv\Scripts\Activate.ps1`<br>
+`pip install -r requirements.txt`<br>
 
 ### Process Data & Train Model
 
-`python -m src.asr.transcribe`
-`python -m src.train.train_text`
+`python -m src.asr.transcribe`<br>
+`python -m src.train.train_text`<br>
 
 This will generate:
-- `data/processed/transcripts.csv`
-- `data/models/text_clf.joblib`
+- `data/processed/transcripts.csv`<br>
+- `data/models/text_clf.joblib`<br>
 
 ### Start Backend API
 
 `uvicorn src.api.app:app --reload --port 8000`
 
 ### Frontend Setup (TypeScript UI)
-`cd yc-ui`
-`npm install`
+`cd yc-ui`<br>
+`npm install`<br>
 
-Create `yc-ui/.env.local`: 
+Create `yc-ui/.env.local`:<br> 
 `NEXT_PUBLIC_API_BASE=http://localhost:8000`
 
-Start UI:
+Start UI:<br>
 `npm run dev`
 
 ## Notes
@@ -129,3 +129,4 @@ Start UI:
 - Temporary files (`tmp/`) are not committed
 - Model artifacts are reproducible and not versioned
 - Some YouTube videos may fail due to availability or rate limits
+
