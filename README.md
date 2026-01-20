@@ -95,15 +95,37 @@ The dataset is processed automatically into transcripts and feature vectors befo
 
 ### Backend Setup (Python)
 
-git clone <repo-url>
-cd YCpredictor
+`git clone https://github.com/rixiiz/yc-predictor`
+`cd YCpredictor`
+`python -m venv .venv`
+`source .venv/bin/activate   # Windows: .\.venv\Scripts\Activate.ps1`
+`pip install -r requirements.txt`
 
-python -m venv .venv
-source .venv/bin/activate   # Windows: .\.venv\Scripts\Activate.ps1
+### Process Data & Train Model
 
-pip install -r requirements.txt
+`python -m src.asr.transcribe`
+`python -m src.train.train_text`
 
-### Train Model
+This will generate:
+- `data/processed/transcripts.csv`
+- `data/models/text_clf.joblib`
 
-python -m src.train.train_text
+### Start Backend API
 
+`uvicorn src.api.app:app --reload --port 8000`
+
+### Frontend Setup (TypeScript UI)
+`cd yc-ui`
+`npm install`
+
+Create `yc-ui/.env.local`: 
+`NEXT_PUBLIC_API_BASE=http://localhost:8000`
+
+Start UI:
+`npm run dev`
+
+## Notes
+
+- Temporary files (`tmp/`) are not committed
+- Model artifacts are reproducible and not versioned
+- Some YouTube videos may fail due to availability or rate limits
