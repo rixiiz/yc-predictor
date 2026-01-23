@@ -100,11 +100,11 @@ This will generate:
 - `data/models/text_clf.joblib`<br>
 
 ### Evaluation
-`python3 -m src.train.predict`<br>
+`python -m src.train.predict`<br>
 
 ### Start Backend API
 
-`python3 -m uvicorn src.api.app:app --reload --port 8000`
+`python -m uvicorn src.api.app:app --reload --port 8000`
 
 ### Frontend Setup (TypeScript UI)
 `cd yc-ui`<br>
