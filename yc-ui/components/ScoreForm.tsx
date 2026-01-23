@@ -1,3 +1,4 @@
+// yc-ui/components/ScoreForm.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -9,7 +10,7 @@ import HistoryPanel, { HistoryItem } from "./HistoryPanel";
 import ConfidenceBadge from "./ConfidenceBadge";
 import ContributionCard from "./ContributionCard";
 
-const HISTORY_KEY = "yc_predictor_history_v1";
+const HISTORY_KEY = "yc_predictor_history_v2";
 const HISTORY_MAX = 12;
 
 function loadHistory(): HistoryItem[] {
@@ -41,21 +42,20 @@ export default function ScoreForm() {
   const [result, setResult] = useState<ScoreResponse | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
-  // Load history once
   useEffect(() => {
     setHistory(loadHistory());
   }, []);
 
   const stageTimer = useRef<number | null>(null);
+
   function scheduleStages() {
-    // Reset
     if (stageTimer.current) window.clearTimeout(stageTimer.current);
 
     setStage("download");
-    stageTimer.current = window.setTimeout(() => setStage("frames"), 2500);
-    stageTimer.current = window.setTimeout(() => setStage("audio"), 4500);
-    stageTimer.current = window.setTimeout(() => setStage("asr"), 6500);
-    stageTimer.current = window.setTimeout(() => setStage("embed"), 12000);
+    window.setTimeout(() => setStage("frames"), 2500);
+    window.setTimeout(() => setStage("audio"), 4500);
+    window.setTimeout(() => setStage("asr"), 6500);
+    window.setTimeout(() => setStage("embed"), 12000);
   }
 
   function finishStages(success: boolean) {
@@ -115,7 +115,7 @@ export default function ScoreForm() {
 
   const probPct = useMemo(() => {
     if (!result) return null;
-    return Math.round(result.yc_like_probability * 1000) / 10; 
+    return Math.round(result.yc_like_probability * 1000) / 10;
   }, [result]);
 
   return (
@@ -144,8 +144,8 @@ export default function ScoreForm() {
             <div>
               <div className="small">YC-like probability</div>
               <div className="metric">{probPct}%</div>
-              <div className="small" style={{ marginTop: 6, opacity: 0.8 }}>
-                Raw: {result.yc_like_probability.toFixed(4)}
+              <div className="small" style={{ marginTop: 6, opacity: 0.85 }}>
+                Raw: {result.yc_like_probability.toFixed(4)} • {result.label}
               </div>
             </div>
             <div style={{ alignSelf: "flex-start" }}>

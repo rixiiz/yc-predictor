@@ -1,8 +1,8 @@
-# src/api/app.py
 from pathlib import Path
 import json
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 import numpy as np
@@ -17,21 +17,37 @@ from src.features.frame_feats import summarize_first_frames
 from src.features.text_embed import TextEmbedder
 from src.train.nn_model import YCMLP
 
-
 app = FastAPI(title="YC Predictor (NN: Transcript + First-10-Frames)")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class ScoreReq(BaseModel):
     youtube_id: str
 
+class Contrib(BaseModel):
+    intercept: float
+    text_logit: float
+    frames_logit: float
+    total_logit: float
+    p_base: float
+    p_text_only: float
+    p_frames_only: float
+    p_full: float
 
 class ScoreResp(BaseModel):
     youtube_id: str
     yc_like_probability: float
+    confidence_label: str
     label: str
     transcript: str
     frame_features: dict
-
+    contrib: Contrib
 
 _model = None
 _asr = None
@@ -42,10 +58,21 @@ _num_keys = None
 _mu = None
 _sd = None
 
-
 def sigmoid(x: float) -> float:
     return float(1.0 / (1.0 + np.exp(-x)))
 
+def logit(p: float) -> float:
+    p = float(np.clip(p, 1e-6, 1.0 - 1e-6))
+    return float(np.log(p / (1.0 - p)))
+
+def confidence_label(p: float) -> str:
+    if p >= 0.85:
+        return "Very YC-like"
+    if p >= 0.70:
+        return "Strong signal"
+    if p >= 0.55:
+        return "Borderline"
+    return "Unlikely"
 
 @app.on_event("startup")
 def startup():
@@ -75,7 +102,6 @@ def startup():
     _asr = WhisperModel("base", device="cpu", compute_type="int8")
     _embed = TextEmbedder(device="cpu")
 
-
 def transcribe_wav(wav_path: Path) -> str:
     segments, _ = _asr.transcribe(str(wav_path), vad_filter=True)
     parts = []
@@ -85,16 +111,20 @@ def transcribe_wav(wav_path: Path) -> str:
             parts.append(t)
     return " ".join(parts)
 
+def _predict_logit(X: np.ndarray) -> float:
+    with torch.no_grad():
+        return float(_model(torch.from_numpy(X).to(_device)).item())
 
 @app.post("/score", response_model=ScoreResp)
 def score(req: ScoreReq):
     if _model is None:
         raise HTTPException(status_code=400, detail="Model not trained. Run: python3 -m src.train.train_text")
 
-    yt = req.youtube_id.strip()
+    yt = (req.youtube_id or "").strip()
     if not yt:
         raise HTTPException(status_code=400, detail="youtube_id is required.")
 
+    # Download + preprocess
     video_path = download_youtube(yt, TMP_VIDEOS)
 
     frame_dir = TMP_FRAMES / yt
@@ -106,7 +136,8 @@ def score(req: ScoreReq):
     if not transcript.strip():
         raise HTTPException(status_code=400, detail="Could not transcribe audio for this video.")
 
-    X_text = _embed.encode([transcript]).astype(np.float32)
+    # Build features
+    X_text = _embed.encode([transcript]).astype(np.float32)  # (1, 384)
 
     feats = {
         "mean_brightness": float(getattr(frame_summary, "mean_brightness", 0.0)),
@@ -117,21 +148,54 @@ def score(req: ScoreReq):
     }
 
     x_num_raw = np.array([[float(feats.get(k, 0.0)) for k in _num_keys]], dtype=np.float32)
-    x_num = (x_num_raw - _mu) / _sd
+    x_num = (x_num_raw - _mu) / _sd  # (1, k)
 
-    X = np.hstack([X_text, x_num]).astype(np.float32)
+    # Full input
+    X_full = np.hstack([X_text, x_num]).astype(np.float32)
 
-    with torch.no_grad():
-        logit = float(_model(torch.from_numpy(X).to(_device)).item())
-    prob = sigmoid(logit)
+    # Ablations for contribution summary
+    X_base = np.zeros_like(X_full, dtype=np.float32)
+    X_text_only = X_base.copy()
+    X_text_only[:, : X_text.shape[1]] = X_text
+    X_frames_only = X_base.copy()
+    X_frames_only[:, X_text.shape[1] :] = x_num
 
-    # Old behavior: fixed 0.50 threshold for labeling
-    label = "YC-like" if prob >= 0.50 else "Not YC-like"
+    # Predict
+    logit_full = _predict_logit(X_full)
+    p_full = sigmoid(logit_full)
+
+    logit_base = _predict_logit(X_base)
+    p_base = sigmoid(logit_base)
+
+    logit_text_only = _predict_logit(X_text_only)
+    p_text_only = sigmoid(logit_text_only)
+
+    logit_frames_only = _predict_logit(X_frames_only)
+    p_frames_only = sigmoid(logit_frames_only)
+
+    # Logit contributions relative to baseline
+    intercept = logit(p_base)
+    text_logit = logit(p_text_only) - intercept
+    frames_logit = logit(p_frames_only) - intercept
+    total_logit = logit(p_full) - intercept
+
+    label = "YC-like" if p_full >= 0.50 else "Not YC-like"
 
     return ScoreResp(
         youtube_id=yt,
-        yc_like_probability=prob,
+        yc_like_probability=p_full,
+        confidence_label=confidence_label(p_full),
         label=label,
         transcript=transcript,
         frame_features=feats,
+        contrib=Contrib(
+            intercept=float(intercept),
+            text_logit=float(text_logit),
+            frames_logit=float(frames_logit),
+            total_logit=float(total_logit),
+            p_base=float(p_base),
+            p_text_only=float(p_text_only),
+            p_frames_only=float(p_frames_only),
+            p_full=float(p_full),
+        ),
     )
