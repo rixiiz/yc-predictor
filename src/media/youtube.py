@@ -5,43 +5,25 @@ def youtube_url(video_id: str) -> str:
     return f"https://www.youtube.com/watch?v={video_id}"
 
 def download_youtube(video_id: str, out_dir: Path) -> Path:
+    """
+    Downloads best available format using yt-dlp.
+    Returns the path to the downloaded file.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_template = (out_dir / f"{video_id}.%(ext)s").resolve()
-    url = youtube_url(video_id)
+    out_template = out_dir / f"{video_id}.%(ext)s"
 
     cmd = [
         "yt-dlp",
-        "-f", "best[ext=mp4]/best",
+        "-f", "bv*+ba/best",
         "-o", str(out_template),
-
-        "--retries", "10",
-        "--fragment-retries", "10",
-        "--retry-sleep", "fragment:2",
-        "--socket-timeout", "30",
-
-        "--add-header", "User-Agent:Mozilla/5.0",
-        "--add-header", f"Referer:{url}",
-
-        # IMPORTANT: give yt-dlp a JS runtime
-        "--js-runtimes", "node",
-
-        "--no-cache-dir",
-        url,
+        youtube_url(video_id),
     ]
+    subprocess.check_call(cmd)
 
-    proc = subprocess.run(cmd)
-    if proc.returncode != 0:
-        pretty = subprocess.list2cmdline(cmd)
-        msg = (
-            f"yt-dlp failed (exit {proc.returncode}).\n\n"
-            f"CMD: {pretty}\n\n"
-            f"STDOUT:\n{proc.stdout}\n\n"
-            f"STDERR:\n{proc.stderr}\n"
-        )
-        raise RuntimeError(msg)
-
+    # Find actual file
     matches = list(out_dir.glob(f"{video_id}.*"))
     if not matches:
         raise FileNotFoundError(f"Download succeeded but file not found for {video_id}")
+    # pick the newest
     matches.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return matches[0]
