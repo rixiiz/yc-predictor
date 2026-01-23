@@ -1,18 +1,47 @@
-# python
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
 .venv/
 venv/
 
-# data & logs
-data/raw/debug/
-logs/
-data/raw/partnersim.csv
+# ML artifacts
+data/models/*.joblib
+data/models/*.pkl
+data/models/*.pt
+data/models/*.onnx
 
-# playwright
-playwright/.cache/
+# Keep meta.json
+!data/models/meta.json
 
+# Temporary media files (DO NOT COMMIT)
 tmp/
-data/processed/
-data/models/
+data/processed/transcribe_failed.jsonl
+
+# HuggingFace / Whisper caches
+.cache/
+hf_cache/
+huggingface/
+
+# Logs
+*.log
+
+# OS junk
 .DS_Store
+Thumbs.db
+
+# TypeScript UI
+yc-ui/node_modules/
+yc-ui/.next/
+yc-ui/out/
+yc-ui/.env.local
+
+# IDE
+.vscode/
+.idea/
