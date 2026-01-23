@@ -1,29 +1,25 @@
 {
-  "model": "LogReg + all-MiniLM-L6-v2 embeddings + first-10-frame features",
-  "frame_features": [
+  "numeric_features": [
     "mean_brightness",
     "std_brightness",
     "mean_edge_density",
+    "mean_motion_energy",
     "n_frames"
   ],
-  "split": {
-    "holdout_year": -1,
-    "train_n": 80,
-    "test_n": 21
-  },
-  "metrics": {
-    "acc": 0.5714285714285714,
-    "f1": 0.18181818181818182,
-    "auc": 0.2625,
-    "confusion_matrix": [
-      [
-        11,
-        5
-      ],
-      [
-        4,
-        1
-      ]
+  "numeric_scaler": {
+    "mean": [
+      117.2208480834961,
+      65.69528198242188,
+      0.021541813388466835,
+      11.063056945800781,
+      10.0
+    ],
+    "std": [
+      28.79837417602539,
+      13.933960914611816,
+      0.01964636705815792,
+      7.655422210693359,
+      1.0
     ]
   }
 }

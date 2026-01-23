@@ -1,64 +1,83 @@
-from __future__ import annotations
-
+# src/api/app.py
 from pathlib import Path
+import json
+
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-import joblib
 import numpy as np
+import torch
 from faster_whisper import WhisperModel
 
-from src.config import CLF_PATH, ensure_dirs, TMP_VIDEOS, TMP_AUDIO, TMP_FRAMES
+from src.config import NN_PATH, META_PATH, ensure_dirs, TMP_VIDEOS, TMP_AUDIO, TMP_FRAMES
 from src.media.youtube import download_youtube
 from src.media.audio import extract_wav
 from src.media.frames import extract_first_n_frames
 from src.features.frame_feats import summarize_first_frames
 from src.features.text_embed import TextEmbedder
+from src.train.nn_model import YCMLP
 
-app = FastAPI(title="YC Predictor API")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = FastAPI(title="YC Predictor (NN: Transcript + First-10-Frames)")
+
 
 class ScoreReq(BaseModel):
     youtube_id: str
 
-class Contrib(BaseModel):
-    intercept: float
-    text_logit: float
-    frames_logit: float
-    total_logit: float
 
 class ScoreResp(BaseModel):
     youtube_id: str
     yc_like_probability: float
-    confidence_label: str
-    contrib: Contrib
+    label: str
+    transcript: str
+    frame_features: dict
 
-_clf = None
+
+_model = None
 _asr = None
 _embed = None
+_device = "cuda" if torch.cuda.is_available() else "cpu"
+
+_num_keys = None
+_mu = None
+_sd = None
+
+
+def sigmoid(x: float) -> float:
+    return float(1.0 / (1.0 + np.exp(-x)))
+
 
 @app.on_event("startup")
 def startup():
-    global _clf, _asr, _embed
+    global _model, _asr, _embed, _num_keys, _mu, _sd
+
     ensure_dirs()
-    if not CLF_PATH.exists():
-        print("WARNING: No trained model found. Train with: python -m src.train.train_text")
-        _clf = None
+
+    if not NN_PATH.exists() or not META_PATH.exists():
+        print("WARNING: Model/meta missing. Train with: python3 -m src.train.train_text")
+        _model = None
     else:
-        _clf = joblib.load(CLF_PATH)
+        ckpt = torch.load(NN_PATH, map_location="cpu")
+        _model = YCMLP(
+            input_dim=int(ckpt["input_dim"]),
+            hidden_dims=list(ckpt.get("hidden_dims", [128, 32])),
+            dropout=float(ckpt.get("dropout", 0.5)),
+        )
+        _model.load_state_dict(ckpt["state_dict"])
+        _model.to(_device).eval()
+
+        meta = json.loads(META_PATH.read_text(encoding="utf-8"))
+        _num_keys = list(meta["numeric_features"])
+        _mu = np.array(meta["numeric_scaler"]["mean"], dtype=np.float32)
+        _sd = np.array(meta["numeric_scaler"]["std"], dtype=np.float32)
+        _sd = np.where(_sd < 1e-6, 1.0, _sd)
+
     _asr = WhisperModel("base", device="cpu", compute_type="int8")
     _embed = TextEmbedder(device="cpu")
 
-def _transcribe_wav(wav_path: Path) -> str:
-    segments, _info = _asr.transcribe(str(wav_path), vad_filter=True)
+
+def transcribe_wav(wav_path: Path) -> str:
+    segments, _ = _asr.transcribe(str(wav_path), vad_filter=True)
     parts = []
     for seg in segments:
         t = (seg.text or "").strip()
@@ -66,31 +85,15 @@ def _transcribe_wav(wav_path: Path) -> str:
             parts.append(t)
     return " ".join(parts)
 
-def _frame_vec(summary) -> np.ndarray:
-    return np.array([
-        float(summary.mean_brightness),
-        float(summary.std_brightness),
-        float(summary.mean_edge_density),
-        float(summary.n_frames),
-    ], dtype=np.float32)[None, :]
-
-def _confidence_label(p: float) -> str:
-    if p >= 0.85:
-        return "Very YC-like"
-    if p >= 0.70:
-        return "Strong signal"
-    if p >= 0.55:
-        return "Borderline"
-    return "Unlikely"
 
 @app.post("/score", response_model=ScoreResp)
 def score(req: ScoreReq):
-    if _clf is None:
-        raise HTTPException(status_code=400, detail="Model not trained. Run: python -m src.train.train_text")
+    if _model is None:
+        raise HTTPException(status_code=400, detail="Model not trained. Run: python3 -m src.train.train_text")
 
-    yt = (req.youtube_id or "").strip()
+    yt = req.youtube_id.strip()
     if not yt:
-        raise HTTPException(status_code=400, detail="youtube_id is required")
+        raise HTTPException(status_code=400, detail="youtube_id is required.")
 
     video_path = download_youtube(yt, TMP_VIDEOS)
 
@@ -99,34 +102,36 @@ def score(req: ScoreReq):
     frame_summary = summarize_first_frames(frames)
 
     wav_path = extract_wav(video_path, TMP_AUDIO)
-    transcript = _transcribe_wav(wav_path)
+    transcript = transcribe_wav(wav_path)
     if not transcript.strip():
-        raise HTTPException(status_code=400, detail="Could not transcribe audio for this video")
+        raise HTTPException(status_code=400, detail="Could not transcribe audio for this video.")
 
-    X_text = _embed.encode([transcript])          # (1, 384)
-    X_frames = _frame_vec(frame_summary)          # (1, 4)
-    X = np.hstack([X_text, X_frames])             # (1, 388)
+    X_text = _embed.encode([transcript]).astype(np.float32)
 
-    proba = float(_clf.predict_proba(X)[0, 1])
+    feats = {
+        "mean_brightness": float(getattr(frame_summary, "mean_brightness", 0.0)),
+        "std_brightness": float(getattr(frame_summary, "std_brightness", 0.0)),
+        "mean_edge_density": float(getattr(frame_summary, "mean_edge_density", 0.0)),
+        "mean_motion_energy": float(getattr(frame_summary, "mean_motion_energy", 0.0)),
+        "n_frames": float(getattr(frame_summary, "n_frames", 0.0)),
+    }
 
-    # Logistic regression contributions (logit space)
-    # total_logit = intercept + sum_i coef_i * x_i
-    coef = _clf.coef_.reshape(-1)                 # (388,)
-    intercept = float(_clf.intercept_.reshape(-1)[0])
+    x_num_raw = np.array([[float(feats.get(k, 0.0)) for k in _num_keys]], dtype=np.float32)
+    x_num = (x_num_raw - _mu) / _sd
 
-    x = X.reshape(-1)                             # (388,)
-    text_logit = float(np.dot(coef[:384], x[:384]))
-    frames_logit = float(np.dot(cof := coef[384:], x[384:]))
-    total_logit = intercept + text_logit + frames_logit
+    X = np.hstack([X_text, x_num]).astype(np.float32)
+
+    with torch.no_grad():
+        logit = float(_model(torch.from_numpy(X).to(_device)).item())
+    prob = sigmoid(logit)
+
+    # Old behavior: fixed 0.50 threshold for labeling
+    label = "YC-like" if prob >= 0.50 else "Not YC-like"
 
     return ScoreResp(
         youtube_id=yt,
-        yc_like_probability=proba,
-        confidence_label=_confidence_label(proba),
-        contrib=Contrib(
-            intercept=intercept,
-            text_logit=text_logit,
-            frames_logit=frames_logit,
-            total_logit=total_logit,
-        )
+        yc_like_probability=prob,
+        label=label,
+        transcript=transcript,
+        frame_features=feats,
     )
