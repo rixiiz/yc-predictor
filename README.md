@@ -1,73 +1,63 @@
 # YC Predictor
 
-YC Predictor is an end-to-end **multimodal machine learning system** that predicts the likelihood a startup pitch video would be accepted by Y Combinator evaluators.
-The system analyzes **what founders say** (speech transcripts) and **what the video looks like** (first 10 visual frames), combines these signals into a single model, and returns an interpretable probability score via a clean TypeScript UI.
+YC Predictor is an end-to-end **multimodal machine learning system** that predicts the likelihood a startup pitch video would be accepted by Y Combinator evaluators.  
+The system analyzes **what founders say** (speech transcripts) and **what the video looks like** (first 10 visual frames), combines these signals into a single model, and returns a probability score via a FastAPI API.
 
 ---
 
 ## Key Features
 
 - **Multimodal ML pipeline** combining speech and visual features
-- **Automated data scraping & processing** from https://ycarena.com
-- **Whisper-based transcription** for high-quality speech-to-text
-- **Sentence-transformer embeddings** for semantic understanding
-- **Interpretable logistic regression model** with feature contribution breakdowns
-- **FastAPI inference backend**
-- **TypeScript (Next.js) frontend** with:
-  - Progress timeline
-  - Confidence interpretation
-  - Feature contribution summary
-  - Local prediction history
+- **Automated video ingestion & processing** using `yt-dlp` + `ffmpeg`
+- **Whisper-based transcription** (`faster-whisper`) for high-quality speech-to-text
+- **Sentence-transformer embeddings** for semantic understanding of transcripts
+- **PyTorch neural network (MLP)** trained on fused text + frame features
+- **FastAPI inference backend** returning:
+  - Probability score (`yc_like_probability`)
+  - Predicted label (`YC-like` / `Not YC-like`)
+  - Transcript + frame features for debugging
 
 ---
 
 ## Model Overview
 
 **Inputs**
-- Startup pitch YouTube video (ID or URL)
+- Startup pitch YouTube video (ID)
 
 **Features**
-- **Text**: Transcript embeddings generated using sentence transformers
-- **Visual**: Statistics from the first 10 video frames (brightness, contrast, edge density)
+- **Text**: Transcript embeddings generated using sentence transformers  
+- **Visual**: Statistics from the first 10 video frames (brightness, edge density, motion)
 
 **Model**
-- Logistic Regression classifier trained on labeled pitch outcomes
-- Outputs a probability score and interpretable logit-space contributions:
-  - Text contribution
-  - Visual contribution
-  - Intercept (base rate)
+- PyTorch MLP classifier trained on labeled pitch outcomes  
+- Outputs a probability score
 
 ---
 
-## Example Output
+## Example Evaluation Result
 
-- **YC-like probability**: `78.3%`
-- **Confidence label**: `Strong signal`
-- **Feature contribution summary**:
-  - Text embedding: `+0.31`
-  - Frame features: `+0.07`
-  - Intercept: `+0.12`
+Quick test on the last 20% split:
+
+- **Threshold**: `0.50`
+- **Accuracy**: `0.905`
+- **Balanced Accuracy**: `0.869`
 
 ---
 
 ## 🗂️ Project Structure
 
-YCpredictor/<br>
+yc-predictor/<br>
 ├── src/ # Python ML + backend code<br>
 │ ├── api/ # FastAPI inference service<br>
 │ ├── asr/ # Transcription pipeline (Whisper)<br>
 │ ├── features/ # Text & frame feature extraction<br>
 │ ├── media/ # YouTube download, audio, frames<br>
-│ └── train/ # Model training<br>
+│ └── train/ # Model training + evaluation<br>
 ├── data/<br>
 │ ├── raw/ # Original dataset (CSV)<br>
 │ ├── processed/ # Transcripts + features<br>
 │ └── models/ # Trained model artifacts<br>
 ├── tmp/ # Temporary video/audio/frame files (ignored)<br>
-├── yc-ui/ # TypeScript UI (Next.js)<br>
-│ ├── app/ # App Router pages/layout<br>
-│ ├── components/ # UI components<br>
-│ └── lib/ # API helpers<br>
 ├── requirements.txt<br>
 ├── .gitignore<br>
 └── README.md<br>
@@ -76,13 +66,11 @@ YCpredictor/<br>
 
 ## Dataset
 
-- Pitch videos scraped from YouTube using `yt-dlp`
+- Pitch videos collected from YouTube using `yt-dlp`
 - Labeled as **1(accepted) / 0(rejected)**
 - Stored as a CSV with:
-  ```csv
-  youtube_id,label,year
 
-The dataset is processed automatically into transcripts and feature vectors before training.
+csv - `youtube_id,label,year`
 
 ## Running the Project
 
@@ -110,9 +98,12 @@ This will generate:
 - `data/processed/transcripts.csv`<br>
 - `data/models/text_clf.joblib`<br>
 
+### Evaluation
+`python3 -m src.train.predict`<br>
+
 ### Start Backend API
 
-`uvicorn src.api.app:app --reload --port 8000`
+`python3 -m uvicorn src.api.app:app --reload --port 8000`
 
 ### Frontend Setup (TypeScript UI)
 `cd yc-ui`<br>
@@ -129,4 +120,3 @@ Start UI:<br>
 - Temporary files (`tmp/`) are not committed
 - Model artifacts are reproducible and not versioned
 - Some YouTube videos may fail due to availability or rate limits
-
