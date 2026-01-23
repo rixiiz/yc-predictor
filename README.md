@@ -60,6 +60,8 @@ yc-predictor/<br>
 ├── tmp/ # Temporary video/audio/frame files (ignored)<br>
 ├── requirements.txt<br>
 ├── .gitignore<br>
+├── README.md<br>
+├── data-scraper/<br>
 └── README.md<br>
 
 ---
